@@ -1,0 +1,417 @@
+<!DOCTYPE>
+<html>
+
+<head>
+	<!-- 
+        SJTU - CS230/CS238: Virtual Reality
+
+		Homework 2: Lighting and Shading with GLSL
+
+            Egemen Ertugrul
+            egertu@sjtu.edu.cn
+    	-->
+
+	<title>CS230/CS238: Homework 2 - Task</title>
+	<meta charset="UTF-8">
+	<script type="text/javascript" src="three.r96.js"></script>
+	<script type="text/javascript">
+		var renderer, scene, camera;
+		var chopper;
+
+		//We will use separate shaders for Gouraud and Phong shading models.
+		var vertexShader, fragmentShader;
+		var gouraudVertexShader, gouraudFragmentShader;
+		var phongVertexShader, phongFragmentShader;
+
+		var statusContainer; //HTML element, where we will display the shader name
+		var shaderMode = 1;
+
+		//We will use a point light that moves along a trajectory
+		var lightPosition;
+		var lightTrajectory;
+
+		//Viewer position in world space
+		var viewerPosition = new THREE.Vector3(0.0, 0.0, 8.0);
+
+		function millis() {
+
+			return (new Date()).getTime();
+		}
+
+		function toRad(degree) {
+
+			return Math.PI * 2 * degree / 360;
+		}
+
+		function onLoad() {
+			// Stats.js https://github.com/mrdoob/stats.js/
+			javascript:(function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();document.body.appendChild(stats.dom);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='//mrdoob.github.io/stats.js/build/stats.min.js';document.head.appendChild(script);})()
+
+			var canvasContainer = document.getElementById('myCanvasContainer');
+			var width = 800;
+			var height = 500;
+
+			//Load the Gouraud shader codes
+			gouraudVertexShader = document.getElementById('gouraudVertexShader').textContent;
+			gouraudFragmentShader = document.getElementById('gouraudFragmentShader').textContent;
+
+			//Load the Phong shader codes
+			phongVertexShader = document.getElementById('phongVertexShader').textContent;
+			phongFragmentShader = document.getElementById('phongFragmentShader').textContent;
+
+			//Status container element
+			statusContainer = document.getElementById('statusContainer');
+
+			renderer = new THREE.WebGLRenderer();
+			renderer.setSize(width, height);
+			canvasContainer.appendChild(renderer.domElement);
+
+			scene = new THREE.Scene();
+
+			//Setup the camera
+			camera = new THREE.PerspectiveCamera(80, width / height, 1, 1000);
+			camera.position.set(viewerPosition.x, viewerPosition.y, viewerPosition.z);
+			camera.up = new THREE.Vector3(0, 1, 0);
+			camera.lookAt(new THREE.Vector3(0, -5, 0));
+			scene.add(camera);
+
+			//Set the initial shader
+			changeShader();
+
+			addHangar();
+			chopper = addChopper();
+
+
+
+
+			//Three.js has some classes for splines. 
+			lightTrajectory = new THREE.CatmullRomCurve3([
+				new THREE.Vector3(0, -4, 5),
+				new THREE.Vector3(-2, 0, 3),
+				new THREE.Vector3(-3, 4, 6),
+				new THREE.Vector3(8, 2, 9),
+			]);
+			lightTrajectory.closed = true;
+
+			draw();
+
+			window.addEventListener('keydown', function (event) {
+				if (event.keyCode == 37) { //Right arrow
+					changeShader();
+				}
+				if (event.keyCode == 39) { //Left arrow
+					changeShader();
+				}
+			}, false);
+		}
+
+		/**
+		 * Function that switches the shader code.
+		 */
+		function changeShader() {
+			shaderMode = (shaderMode + 1) % 2;
+			if (shaderMode == 0) { //Assign the Gouraud shader
+				vertexShader = gouraudVertexShader;
+				fragmentShader = gouraudFragmentShader;
+				statusContainer.innerHTML = 'Gouraud shader';
+			} else { //Assign the Phong shader
+				vertexShader = phongVertexShader;
+				fragmentShader = phongFragmentShader;
+				statusContainer.innerHTML = 'Phong shader';
+			}
+
+			//Traverse the scene graph and update the code for the corresponding materials.
+			scene.traverse(function (object) {
+				if (object.material !== undefined && object.material instanceof THREE.ShaderMaterial) {
+					object.material.vertexShader = vertexShader;
+					object.material.fragmentShader = fragmentShader;
+					object.material.needsUpdate = true;
+				}
+			});
+		}
+
+		function draw() {
+			requestAnimationFrame(draw);
+
+			//This will sample the light trajectory curve and assign a point value at a given time to the light position.
+			var m = millis() / 4000;
+			lightPosition = lightTrajectory.getPoint(m - parseInt(m));
+
+			//Traverse the scene and update the lightPosition variable value for the shaders.
+			scene.traverse(function (object) {
+				if (object.material !== undefined && object.material instanceof THREE.ShaderMaterial) {
+					//Send the light position transformed to camera space
+					object.material.uniforms.lightPosition.value = new THREE.Vector3().copy(lightPosition).applyMatrix4(camera.matrixWorldInverse);
+				}
+			});
+
+			//Hopefully you have something like this for the blades rotation
+			chopper.children[1].rotation.set(0, toRad((millis() / 10) % 360), 0);
+
+			renderer.render(scene, camera);
+		}
+
+		function addHangar() {
+			var hangar = new THREE.Object3D();
+			var halfPi = Math.PI / 2;
+
+			var leftWall = createWall(0x555555);
+			leftWall.position.set(-10, 0, 0);
+			leftWall.rotation.set(0, halfPi, 0);
+			hangar.add(leftWall);
+
+			var rightWall = createWall(0x333333);
+			rightWall.position.set(10, 0, 0);
+			rightWall.rotation.set(0, -halfPi, 0);
+			hangar.add(rightWall);
+
+			var backWall = createWall(0x444444);
+			backWall.position.set(0, 0, -10);
+			hangar.add(backWall);
+
+			var ceiling = createWall(0x111111);
+			ceiling.position.set(0, 10, 0);
+			ceiling.rotation.set(halfPi, 0, 0);
+			hangar.add(ceiling);
+
+			var floor = createWall(0x222222);
+			floor.position.set(0, -10, 0);
+			floor.rotation.set(-halfPi, 0, 0);
+			hangar.add(floor);
+
+			scene.add(hangar);
+		}
+
+		/**
+		 * Hopefully you have something similar.
+		 * You can copy your chopper drawing code to replace this. 
+		 * Use a sphere as the body.
+		 */
+		function addChopper() {
+			var chopper = new THREE.Object3D();
+			chopper.position.set(0, -5, 0);
+
+			var body = createSphere(0xccccee);
+			body.scale.set(3, 1, 1);
+			chopper.add(body);
+
+
+			var blades = new THREE.Object3D();
+			var blade1 = createCube(0xcceecc);
+			blade1.position.set(2.7, 1.2, 0);
+			blade1.scale.set(2.4, 0.1, 0.4);
+			blade1.rotation.set(0, toRad(180), 0);
+
+			blades.add(blade1);
+
+			var blade2 = createCube(0xEE9A49);
+			blade2.scale.set(2.4, 0.1, 0.4);
+			blade2.position.set(-2.7, 1.2, 0);
+			blades.add(blade2);
+
+			var blade3 = createCube(0xE0FFFF);
+			blade3.scale.set(1, 1, 1);
+			blade3.rotation.set(90, 0, 0);
+			blade3.position.set(0,0 ,5);
+			blades.add(blade3);
+
+			var blade4 = createSphere(0xEE82EE);
+			blade4.scale.set(1, 1, 1);
+			blade4.position.set(0,0 ,-5);
+			blades.add(blade4);
+
+			chopper.add(blades);
+
+			scene.add(chopper);
+
+			return chopper;
+		}
+
+		function createWall(colorCode) {
+			var geometry = new THREE.PlaneGeometry(20, 20, 0);
+			var color = new THREE.Color(colorCode);
+			var material = createShaderMaterial(color);
+			var wall = new THREE.Mesh(geometry, material);
+
+			return wall;
+		}
+
+		function createCube(colorCode) {
+			var geometry = new THREE.BoxGeometry(2, 2, 2);
+			var color = new THREE.Color(colorCode);
+			var material = createShaderMaterial(color);
+			var cube = new THREE.Mesh(geometry, material);
+
+			return cube;
+		}
+
+		function createSphere(colorCode) {
+			var geometry = new THREE.SphereGeometry(1, 6, 6); // We create a sphere approximation. Radius = 1; widthSegments = heightSegments = 6.
+			var color = new THREE.Color(colorCode);
+			var material = createShaderMaterial(color);
+			var sphere = new THREE.Mesh(geometry, material);
+
+			return sphere;
+		}
+
+		function createShaderMaterial(color) {
+
+			return new THREE.ShaderMaterial({
+				uniforms: {
+					//--Task--
+					//There will be 2 uniforms sent to the shader:
+					// -lightPosition, v3, vec3 - the position of the light source
+					// -color, c, vec3 - the color of the current material
+					lightPosition: { type:"v3", value: lightPosition},
+					// object don't light itslef by default, so black
+					ambientColor: {type:"v3", value: new THREE.Color(0x000000)},
+					// diffuse light color
+					diffuseColor: {type:"v3", value: color},
+					// make the specular light is white by default
+					specularColor:{type:"v3", value: new THREE.Color(0x555555)}
+				},
+				vertexShader: vertexShader,
+				fragmentShader: fragmentShader
+			});
+		}
+	</script>
+	<!--
+			--Task--
+			Fill the Gouraud and Phong vertex and fragment shaders.
+			When doing the calculations with points, make sure you are in the camera/eye coordinate space.
+			The vertex positions and normals sent (by Three.js) to the vertex shader are initially in the local coordinate space.
+			Three.js provides you with a modelViewMatrix (mat4) and a normalMatrix (mat3) for each vertex of each object.
+			Those transform from the object space to camera space.
+		-->
+	
+	<script id="gouraudVertexShader" type="x-shader/x-vertex">
+	
+
+			uniform vec3 lightPosition; // light source position
+			uniform vec3 ambientColor;
+			uniform vec3 specularColor;
+			uniform vec3 diffuseColor;
+
+			// bridge to fragment shader
+			varying vec3 interpolatedColor;
+
+      		const float shininess = 32.0;
+
+			void main() {
+				//1. Calculate the vertexPosition in the camera space.
+				//2. Calculate the correct normal in the camera space.
+				//3. Find the direction towards the viewer, normalize.
+				//4. Find the direction towards the light source, normalize.
+				
+				//Implement Phong's lighting/reflection model:
+				// - Ambient term you can just add
+				// - Use the values calculated before for the diffuse/Lambertian term
+				// - For Phong's specular, find the reflection of the light ray from the point
+				//   See: https://www.opengl.org/sdk/docs/man/html/reflect.xhtml
+				//   Use a value like 200 for the shininess
+
+
+				
+				// Get the vertex position in eye coordinates
+
+				vec4 vertexPositionEye4 = modelViewMatrix * vec4(position, 1.0);
+				vec3 vertexPositionEye3 = vec3(vertexPositionEye4) / vertexPositionEye4.w;
+
+				vec4 lightPosition4 = vec4(lightPosition, 1.0);
+				vec3 lightPosition3 = vec3(lightPosition4) / lightPosition4.w;
+
+		        vec3 L = normalize(lightPosition3 - vertexPositionEye3);
+		        vec3 N = normalize(normalMatrix * normal);
+		        // vec3 N = normalize(vec3(modelViewMatrix * vec4(normal, 0.0)));
+		        vec3 R = reflect(-L, N);
+		        // The camera in eye coordinates is located in the origin and is pointing
+		        // along the negative z-axis. Calculate viewVector (v) in eye coordinates as:
+		        // (0.0, 0.0, 0.0) - vertexPositionEye3
+		        vec3 V = -normalize(vertexPositionEye3);
+
+		        // if max(dot(L, N), 0) wil go WRONG!!!!!!!, MUST be 0.0!!!
+		        vec3 diffusal = diffuseColor * max(dot(L, N), 0.0);
+		        diffusal = clamp(diffusal, 0.0, 1.0); // make all values lies between 0 and 1
+
+		        vec3 specular = specularColor * pow(max(dot(R, V), 0.0), shininess);
+		        specular = clamp(specular, 0.0, 1.0); 
+
+		        // Sum up all three reflection components and send to the fragment shader
+				interpolatedColor = ambientColor + diffusal + specular;
+
+
+
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+			}
+		</script>
+	<script id="gouraudFragmentShader" type="x-shader/x-fragment">
+		varying vec3 interpolatedColor;
+			
+			void main() {
+				//Nothing fancy here, we already know the color.
+				gl_FragColor = vec4(interpolatedColor, 1.0);
+			}
+		</script>
+	
+	<script id="phongVertexShader" type="x-shader/x-vertex">
+
+			uniform vec3 lightPosition;
+
+			varying vec3 interpolatedPosition; //We interpolate the position
+			varying vec3 interpolatedNormal;   //We interpolate the normal
+			varying vec3 interpolatedLight; 
+			
+			void main() {
+				//Find the correct values for the position and the normal in camera space.
+				gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+
+				vec4 vertexPositionEye4 = modelViewMatrix * vec4(position, 1.0);
+				interpolatedPosition = vec3(vertexPositionEye4) / vertexPositionEye4.w; //Replace these 2 lines
+
+            	vec4 lightPosition4 =  vec4(lightPosition, 1.0);
+            	interpolatedLight = vec3(lightPosition4) / lightPosition4.w;
+				// interpolatedNormal = vec3(modelViewMatrix * vec4(normal, 0.0));
+				interpolatedNormal = normalMatrix * normal;
+				
+			}
+		</script>
+	
+	<script id="phongFragmentShader" type="x-shader/x-fragment">
+			// all uniform variables
+			uniform vec3 ambientColor;
+			uniform vec3 specularColor;
+			uniform vec3 diffuseColor;
+
+			// vec3 in camera space
+			varying vec3 interpolatedPosition;
+			varying vec3 interpolatedNormal;
+			varying vec3 interpolatedLight;
+			
+			const float shininess = 32.0;
+			void main() {
+				//Do the same Phong's lighting/reflection model calculation that you did in Gouraud vertex shader before.
+				vec3 L = normalize(interpolatedLight - interpolatedPosition);
+		        vec3 N = normalize(interpolatedNormal);
+		        vec3 R = reflect(-L, N);
+		        vec3 V = -normalize(interpolatedPosition);
+
+		        vec3 diffusal = diffuseColor * max(dot(L, N), 0.0);
+		        diffusal = clamp(diffusal, 0.0, 1.0); 
+
+		        vec3 specular = specularColor * pow(max(dot(R, V), 0.0), shininess);
+		        specular = clamp(specular, 0.0, 1.0); 
+
+		       
+				vec3 phongColor = ambientColor + diffusal + specular;
+				gl_FragColor = vec4(phongColor, 1.0);
+			}
+		</script>
+</head>
+
+<body onload="onLoad()" style="text-align: center; font-family: Cambria, Cochin, Georgia, Times, 'Times New Roman', serif">
+		<div id="myCanvasContainer"></div>
+		<div id="statusContainer"></div>
+		<div><p>Click left/right arrows to change the shader.</p></div>
+</body>
+
+</html>
